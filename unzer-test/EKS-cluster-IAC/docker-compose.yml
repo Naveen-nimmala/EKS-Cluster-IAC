@@ -1,0 +1,11 @@
+version: '3'
+services:
+  pipeline:
+    build:
+      dockerfile: dockerfile
+      context: ./
+    volumes:
+      - ${PWD}:/pipeline
+    working_dir: /pipeline
+    env_file:
+      - docker-vars-dev.env

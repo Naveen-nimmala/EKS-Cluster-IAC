@@ -1,0 +1,66 @@
+default:
+  image: hashicorp/terraform:0.13.5
+  
+variables:
+  TF_EXECUTOR_SA_KEY_PATH: $TF_EXECUTOR_SA_KEY
+
+stages:
+  - plan
+  - apply_development
+  - apply_staging
+  - apply_production
+
+# -- .Template Jobs --------------------------------------------------------------------------------
+
+.env_vars: { variables: { ENV: $CI_ENVIRONMENT_NAME } }
+
+.plan:
+  stage: plan
+  when: always
+  allow_failure: false
+  artifacts:
+    paths:
+      - envs/${ENV}/.terraform
+      - envs/${ENV}/tf_plan
+    expire_in: 30 minutes
+  script: ./scripts/terraform_plan.sh
+
+.apply:
+  when: manual
+  allow_failure: false
+  script: ./scripts/terraform_apply.sh
+
+# -- Plan Jobs -------------------------------------------------------------------------------------
+
+1_dev_plan:
+  environment: { name: dev }
+  extends: [ .env_vars, .plan ]
+
+2_stg_plan:
+  environment: { name: stg }
+  extends: [ .env_vars, .plan ]
+
+3_prd_plan:
+  environment: { name: prd }
+  extends: [ .env_vars, .plan ]
+
+# -- Apply Jobs ------------------------------------------------------------------------------------
+
+dev_apply:
+  environment: { name: dev }
+  extends: [ .env_vars, .apply ]
+  stage: apply_development
+  needs: [ 1_dev_plan ]
+
+stg_apply:
+  environment: { name: stg }
+  extends: [ .env_vars, .apply ]
+  stage: apply_staging
+  needs: [ 2_stg_plan ]
+
+prd_apply:
+  environment: { name: prd }
+  extends: [ .env_vars, .apply ]
+  stage: apply_production
+  needs: [ 3_prd_plan ]
+  only: [ master ]

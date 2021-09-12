@@ -1,0 +1,197 @@
+default:
+  image: gcr.io/google.com/cloudsdktool/cloud-sdk
+
+stages:
+  - Publish Image
+  - Deploy
+  - Deploy Prod
+  - Rollback Prod
+
+# templates
+.require_docker:
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  services:
+    - name: docker:19.03.0-dind
+
+.install_kustomize: &install_kustomize |
+  # download & install kustomize
+  curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash -s -- 4.2.0 /usr/local/bin
+
+.deploy_k8s:
+  when: manual
+  script:
+    - *install_kustomize
+    - export image_url="$(make obtain_image_url env="${CI_ENVIRONMENT_NAME}")"
+    - export version="$(make obtain_image_version)"
+    - make configure_docker
+    - make configure_k8s
+    - make install
+
+# end-templates
+
+Publish DEV:
+  stage: Publish Image
+  when: always
+  environment:
+    name: dev
+  variables:
+    env: dev
+  extends:
+    - .require_docker
+  script:
+    - make configure_docker
+    - export version="$(make obtain_image_version)"
+    - export image_url="$(make obtain_image_url)"
+    - make publish
+  only:
+    refs:
+      - developement
+      - merge_request
+
+Publish STG:
+  stage: Publish Image
+  when: always
+  environment:
+    name: stg
+  variables:
+    env: stg
+  extends:
+    - .require_docker
+  script:
+    - make configure_docker
+    - export version="$(make obtain_image_version)"
+    - export image_url="$(make obtain_image_url)"
+    - make publish
+  only:
+    refs:
+      - staging
+      - merge_request
+
+Publish PPD:
+  stage: Publish Image
+  when: always
+  environment:
+    name: ppd
+  variables:
+    env: preprod
+  extends:
+    - .require_docker
+  script:
+    - make configure_docker
+    - export version="$(make obtain_image_version)"
+    - export image_url="$(make obtain_image_url)"
+    - make publish
+  only:
+    refs:
+      - master
+
+Publish PRD:
+  stage: Publish Image
+  when: always
+  environment:
+    name: prd
+  variables:
+    env: prd
+  extends:
+    - .require_docker
+  script:
+    - make configure_docker
+    - export version="$(make obtain_image_version)"
+    - export image_url="$(make obtain_image_url)"
+    - make publish
+  only:
+    refs:
+      - tags
+
+Deploy Dev:
+  stage: Deploy
+  when: always
+  environment:
+    name: dev
+  variables: # These Variables will change as per Cloud provider, Here we are taking eg as GKE from GCP
+    cluster: CLUSTER_NAME
+    region: REGION
+    project: PROJECT
+    overlay: dev
+  extends:
+    - .deploy_k8s
+  needs:
+    - Publish DEV
+  only:
+    refs:
+      - developement
+      - merge_request
+
+Deploy STG:
+  stage: Deploy
+  when: always
+  environment:
+    name: stg
+  variables: # These Variables will change as per Cloud provider, Here we are taking eg as GKE from GCP
+    cluster: CLUSTER_NAME
+    region: REGION
+    project: PROJECT
+    overlay: stg
+  extends:
+    - .deploy_k8s
+  needs:
+    - Publish STG
+  only:
+    refs:
+      - staging
+      - merge_request
+
+Deploy PPD:
+  stage: Deploy
+  when: manual
+  environment:
+    name: ppd
+  variables: # These Variables will change as per Cloud provider, Here we are taking eg as GKE from GCP
+    cluster: CLUSTER_NAME
+    region: REGION
+    project: PROJECT
+    overlay: ppd
+  extends:
+    - .deploy_k8s
+  needs:
+    - Publish PPD
+  only:
+    refs:
+      - master
+
+Deploy PRD:
+  stage: Deploy
+  when: manual
+  environment:
+    name: prd
+  variables: # These Variables will change as per Cloud provider, Here we are taking eg as GKE from GCP
+    cluster: CLUSTER_NAME
+    region: REGION
+    project: PROJECT
+    overlay: prd
+  extends:
+    - .deploy_k8s
+  needs:
+    - Publish PRD
+  only:
+    refs:
+      - tags
+
+Rollback Prod:
+  stage: Rollback Prod
+  image: gcr.io/google.com/cloudsdktool/cloud-sdk
+  variables: # These Variables will change as per Cloud provider, Here we are taking eg as GKE from GCP
+    cluster: CLUSTER_NAME
+    region: REGION
+    project: PROJECT
+  script:
+    - make configure_docker
+    - make configure_k8s
+    - make rollback
+  when: manual
+  only:
+    refs:
+      - tags
